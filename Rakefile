@@ -8,6 +8,6 @@ namespace :sinatra_cache do
   desc 'Print configured namespace'
   task :namespace do
     include Sinatra::RedisCache
-    Sinatra::RedisCache.config.namespace
+    Sinatra::RedisCache::Config.config.namespace
   end
 end
