@@ -69,12 +69,16 @@ module Sinatra
         end
       end
 
+      def all_keys(params={with_namespace: true})
+        redis.keys("#{namespace}:*").map{|k| params[:with_namespace] ? k : key_without_namespace(k) }
+      end
+
       def del(keys)
         redis.del(keys)
       end
 
       def flush
-        del(all)
+        del(all_keys)
       end
 
       private
@@ -105,10 +109,6 @@ module Sinatra
         else
           key
         end
-      end
-
-      def all
-        redis.keys("#{namespace}:*")
       end
 
       def serialize(object)
@@ -143,6 +143,11 @@ module Sinatra
     def cache_store(key, value, expires=nil)
       cache = Cache.new
       cache.store(key, value, expires)
+    end
+
+    def cache_list_keys
+      cache = Cache.new
+      cache.all_keys(with_namespace: false)
     end
 
     def cache_del(keys)
