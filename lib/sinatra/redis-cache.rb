@@ -28,7 +28,7 @@ module Sinatra
       end
     end
 
-    class RedisCache
+    class Cache
       def do(key, expires, params={}, block)
         key = key_with_namespace(key)
         if Sinatra::RedisCache::Config.environments.include? Sinatra::Base.settings.environment
@@ -114,27 +114,27 @@ module Sinatra
     end
 
     def cache_do(key, expires=nil, params={}, &block)
-      cache = RedisCache.new
+      cache = Cache.new
       cache.do(key, expires, params, block)
     end
 
     def cache_get(key, params={})
-      cache = RedisCache.new
+      cache = Cache.new
       cache.get(key, params)
     end
 
     def cache_store(key, value, expires=nil, params={})
-      cache = RedisCache.new
+      cache = Cache.new
       cache.store(key, value, expires, params)
     end
 
     def cache_del(keys)
-      cache = RedisCache.new
+      cache = Cache.new
       cache.del(keys)
     end
 
     def cache_flush
-      cache = RedisCache.new
+      cache = Cache.new
       cache.flush
     end
 
