@@ -10,4 +10,10 @@ namespace :sinatra_cache do
     include Sinatra::RedisCache
     Sinatra::RedisCache::Config.config.namespace
   end
+
+  desc 'Show all cache keys'
+  task :list_keys do
+    include Sinatra::RedisCache
+    puts cache_list_keys.map{|k| "#{k} [age: #{cache_key_age(k).to_i}, ttl: #{cache_key_ttl(k)}]"}
+  end
 end
