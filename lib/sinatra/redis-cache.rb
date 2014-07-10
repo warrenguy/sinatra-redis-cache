@@ -48,14 +48,27 @@ module Sinatra
 
       def get(key, params={})
         key = key_with_namespace(key)
-        redis.get(key)
+        string = redis.get(key)
+        unless string.nil?
+          deserialize(string)
+        else
+          false
+        end
       end
 
-      def store(key, value, expires, params={})
+      def store(key, object, expires, params={})
         key = key_with_namespace(key)
         expires = expires || config.default_expires
-        redis.set(key, value)
+        redis.set(key, serialize(object))
         redis.expire(key, expires)
+      end
+
+      def serialize(object)
+        Marshal.dump(object)
+      end
+
+      def deserialize(string)
+        Marshal.load(string)
       end
 
       def flush
