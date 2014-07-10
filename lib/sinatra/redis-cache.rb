@@ -69,6 +69,10 @@ module Sinatra
         end
       end
 
+      def ttl(key)
+        redis.ttl(key_with_namespace(key))
+      end
+
       def all_keys(params={with_namespace: true})
         redis.keys("#{namespace}:*").map{|k| params[:with_namespace] ? k : key_without_namespace(k) }
       end
@@ -138,6 +142,11 @@ module Sinatra
     def cache_key_age(key)
       cache = Cache.new
       Time.now - cache.properties(key)[:created_at]
+    end
+
+    def cache_key_ttl(key)
+      cache = Cache.new
+      cache.ttl(key)
     end
 
     def cache_store(key, value, expires=nil)
