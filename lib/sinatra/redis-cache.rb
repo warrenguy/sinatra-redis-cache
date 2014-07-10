@@ -62,8 +62,12 @@ module Sinatra
         redis.expire(key, expires)
       end
 
+      def del(keys)
+        redis.del(keys)
+      end
+
       def flush
-        redis.del(all_keys)
+        del(all)
       end
 
       private
@@ -96,8 +100,8 @@ module Sinatra
         end
       end
 
-      def all_keys
-        redis.keys(namespace + '*')
+      def all
+        redis.keys("#{namespace}:*")
       end
 
       def serialize(object)
@@ -122,6 +126,11 @@ module Sinatra
     def cache_store(key, value, expires=nil, params={})
       cache = RedisCache.new
       cache.store(key, value, expires, params)
+    end
+
+    def cache_del(keys)
+      cache = RedisCache.new
+      cache.del(keys)
     end
 
     def cache_flush
