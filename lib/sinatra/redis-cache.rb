@@ -30,17 +30,25 @@ module Sinatra
 
     class Cache
       def do(key, expires, block)
-        key = key_with_namespace(key)
         if Sinatra::RedisCache::Config.environments.include? Sinatra::Base.settings.environment
-          object = get(key)
-          if object
-            object
-          else
-            object = block.call
-            store(key, object, expires)
-            object
+          begin
+            if is_locked(key)
+              raise SinatraRedisCacheKeyLocked
+            end
+            object = get(key)
+            if object
+              object
+            else
+              lock(key)
+              object = block.call
+              store(key, object, expires)
+              object
+            end
+          rescue SinatraRedisCacheKeyLocked
+            sleep ((50 + rand(100).to_f)/1000)
+            retry
           end
-        else
+          else
           # Just run the block without cache if we're not in an allowed environment
           block.call
         end
@@ -55,12 +63,21 @@ module Sinatra
       end
 
       def store(key, object, expires=config.default_expires)
-        key = key_with_namespace(key)
         properties = {
+          locked:     false,
           created_at: Time.now
         }
-        redis.set(key, serialize({properties: properties, object: object}))
+        redis.set(key = key_with_namespace(key), serialize({properties: properties, object: object}))
         redis.expire(key, expires)
+      end
+
+      def is_locked(key)
+        (!(properties = properties(key)).nil?) ? properties[:locked] : false
+      end
+
+      def lock(key)
+        redis.set(key = key_with_namespace(key), serialize({properties: {locked: true}}))
+        redis.expire(key, 2)
       end
 
       def properties(key)
@@ -172,6 +189,9 @@ module Sinatra
   end
 
   helpers RedisCache
+end
+
+class SinatraRedisCacheKeyLocked < Exception
 end
 
 Sinatra::RedisCache::Config.config do
