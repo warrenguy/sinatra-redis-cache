@@ -56,9 +56,8 @@ module Sinatra
         end
       end
 
-      def store(key, object, expires, params={})
+      def store(key, object, expires=config.default_expires, params={})
         key = key_with_namespace(key)
-        expires = expires || config.default_expires
         redis.set(key, serialize(object))
         redis.expire(key, expires)
       end
@@ -120,7 +119,7 @@ module Sinatra
       cache.get(key, params)
     end
 
-    def cache_store(key, value, expires, params={})
+    def cache_store(key, value, expires=nil, params={})
       cache = RedisCache.new
       cache.store(key, value, expires, params)
     end
