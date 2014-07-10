@@ -29,7 +29,7 @@ module Sinatra
     end
 
     class Cache
-      def do(key, expires, params={}, block)
+      def do(key, expires, block)
         key = key_with_namespace(key)
         if Sinatra::RedisCache::Config.environments.include? Sinatra::Base.settings.environment
           object = get(key)
@@ -46,20 +46,27 @@ module Sinatra
         end
       end
 
-      def get(key, params={})
-        key = key_with_namespace(key)
-        string = redis.get(key)
-        unless string.nil?
-          deserialize(string)
+      def get(key)
+        unless (string = redis.get(key_with_namespace(key))).nil?
+          deserialize(string)[:object]
         else
           false
         end
       end
 
-      def store(key, object, expires=config.default_expires, params={})
+      def store(key, object, expires=config.default_expires)
         key = key_with_namespace(key)
-        redis.set(key, serialize(object))
+        properties = {
+          created_at: Time.now
+        }
+        redis.set(key, serialize({properties: properties, object: object}))
         redis.expire(key, expires)
+      end
+
+      def properties(key)
+        unless (string = redis.get(key_with_namespace(key))).nil?
+          deserialize(string)[:properties]
+        end
       end
 
       def del(keys)
@@ -113,19 +120,29 @@ module Sinatra
       end
     end
 
-    def cache_do(key, expires=nil, params={}, &block)
+    def cache_do(key, expires=nil, &block)
       cache = Cache.new
-      cache.do(key, expires, params, block)
+      cache.do(key, expires, block)
     end
 
-    def cache_get(key, params={})
+    def cache_get(key)
       cache = Cache.new
-      cache.get(key, params)
+      cache.get(key)
     end
 
-    def cache_store(key, value, expires=nil, params={})
+    def cache_key_properties(key)
       cache = Cache.new
-      cache.store(key, value, expires, params)
+      cache.properties(key)
+    end
+
+    def cache_key_age(key)
+      cache = Cache.new
+      Time.now - cache.properties(key)[:created_at]
+    end
+
+    def cache_store(key, value, expires=nil)
+      cache = Cache.new
+      cache.store(key, value, expires)
     end
 
     def cache_del(keys)
