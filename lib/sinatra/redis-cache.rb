@@ -63,14 +63,6 @@ module Sinatra
         redis.expire(key, expires)
       end
 
-      def serialize(object)
-        Marshal.dump(object)
-      end
-
-      def deserialize(string)
-        Marshal.load(string)
-      end
-
       def flush
         redis.del(all_keys)
       end
@@ -107,6 +99,14 @@ module Sinatra
 
       def all_keys
         redis.keys(namespace + '*')
+      end
+
+      def serialize(object)
+        Marshal.dump(object)
+      end
+
+      def deserialize(string)
+        Marshal.load(string)
       end
     end
 
