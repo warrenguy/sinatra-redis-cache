@@ -7,7 +7,8 @@ A simple redis backed cache for Sinatra applications.
  * Add the gem to your Gemfile
 
    ```ruby
-   gem 'sinatra-redis-cache', git: 'https://github.com/warrenguy/sinatra-redis-cache.git'
+   source 'https://rubygems.org'
+   gem 'sinatra-redis-cache'
    ```
 
  * Require it in your app after including Sinatra
