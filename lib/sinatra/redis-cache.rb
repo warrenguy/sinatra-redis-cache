@@ -95,7 +95,9 @@ module Sinatra
       end
 
       def flush
-        del(all_keys)
+        unless (keys = all_keys).empty?
+          del(keys)
+        end
       end
 
       private
