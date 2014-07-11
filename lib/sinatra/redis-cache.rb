@@ -30,27 +30,33 @@ module Sinatra
 
     class Cache
       def do(key, expires, lock, block)
+        debug_log "do #{key_without_namespace(key)}"
         if Sinatra::RedisCache::Config.environments.include? Sinatra::Base.settings.environment
+          try = 0
           begin
-            object = get(key)
-            if object
-              if lock && object[:properties][:locked]
-                raise SinatraRedisCacheKeyLocked
+            redis.watch(key = key_with_namespace(key)) do |watched|
+              object = get(key)
+              unless object.empty?
+                if lock && object['locked']
+                  raise SinatraRedisCacheKeyLocked
+                end
+                object['object']
+              else
+                if lock then lock_key(key, watched, lock.class == Integer ? lock : 2) end
+                new_object = block.call
+                store(key, new_object, expires)
+                new_object
               end
-              object[:object]
-            else
-              if lock
-                lock_key(key, lock.class == Integer ? lock : 2)
-              end
-              new_object = block.call
-              store(key, new_object, expires)
-              new_object
             end
           rescue SinatraRedisCacheKeyLocked
-            sleep ((50 + rand(100).to_f)/1000)
+            sleeptime = (((try += 1)*50 + rand(100).to_f)/1000)
+            debug_log "key is locked, waiting #{sleeptime}s for retry ##{try}."
+            sleep sleeptime
             retry
           rescue SinatraRedisCacheKeyAlreadyLocked
-            sleep ((50 + rand(100).to_f)/1000)
+            sleeptime = (((try += 1)*50 + rand(100).to_f)/1000)
+            debug_log "failed to obtain lock, waiting #{sleeptime}s for retry ##{try}."
+            sleep sleeptime
             retry
           end
         else
@@ -60,25 +66,30 @@ module Sinatra
       end
 
       def get(key)
-        unless (string = redis.get(key_with_namespace(key))).nil?
-          deserialize(string)
+        debug_log "get #{key_without_namespace(key)}"
+        unless (hash = redis.hgetall(key_with_namespace(key))).nil?
+          hash.each{|k,v| hash[k]=deserialize(v)}
         else
           false
         end
       end
 
       def store(key, object, expires=config.default_expires)
-        properties = {
-          locked:     false,
-          created_at: Time.now
-        }
-        redis.set(key = key_with_namespace(key), serialize({properties: properties, object: object}))
-        redis.expire(key, expires)
+        debug_log "store #{key_without_namespace(key)}"
+        properties = { created_at: Time.now.utc.to_i }
+        redis.watch(key = key_with_namespace(key)) do |watched|
+          watched.multi do |multi|
+            multi.hset(key, 'object',     serialize(object))
+            multi.hset(key, 'properties', serialize(properties))
+            multi.hdel(key, 'locked')
+            multi.expire(key, expires)
+          end
+        end
       end
 
       def properties(key)
-        unless (string = redis.get(key_with_namespace(key))).nil?
-          deserialize(string)[:properties]
+        unless (string = redis.hget(key_with_namespace(key), 'properties')).nil?
+          deserialize(string)
         end
       end
 
@@ -91,6 +102,7 @@ module Sinatra
       end
 
       def del(keys)
+        debug_log "del #{keys.map{|k| key_without_namespace(k)}}"
         redis.del(keys)
       end
 
@@ -104,6 +116,12 @@ module Sinatra
 
       def config
         Sinatra::RedisCache::Config
+      end
+
+      def debug_log(message)
+        if config.logger
+          config.logger.debug("sinatra-redis-cache/#{Process.pid}/#{Thread.current.__id__}") { message }
+        end
       end
 
       def redis
@@ -138,12 +156,15 @@ module Sinatra
         Marshal.load(string)
       end
 
-      def lock_key(key, timeout=2)
-        if redis.setnx(key = key_with_namespace(key), serialize({properties: {locked: true}}))
-          redis.expire(key, timeout)
-        else
+      def lock_key(key, redis, timeout=2)
+        debug_log "locking #{key_without_namespace(key)}"
+        unless redis.multi do |multi|
+          multi.hsetnx(key, 'locked', serialize(true))
+          multi.expire(key, timeout)
+        end.eql? [true,true]
           raise SinatraRedisCacheKeyAlreadyLocked
         end
+
       end
     end
 
@@ -164,7 +185,7 @@ module Sinatra
 
     def cache_key_age(key)
       cache = Cache.new
-      Time.now - cache.properties(key)[:created_at]
+      Time.now.utc.to_i - cache.properties(key)[:created_at]
     end
 
     def cache_key_ttl(key)
@@ -209,6 +230,7 @@ Sinatra::RedisCache::Config.config do
   parameter :namespace
   parameter :default_expires
   parameter :environments
+  parameter :logger
 end
 
 Sinatra::RedisCache::Config.config do
@@ -217,6 +239,7 @@ Sinatra::RedisCache::Config.config do
   namespace       'sinatra_cache'
   default_expires 3600
   environments    [:production]
+  logger          Logger.new(STDERR)
 end
 
 unless defined?(Rake).nil?
