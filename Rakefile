@@ -7,8 +7,7 @@ namespace :sinatra_cache do
 
   desc 'Print configured namespace'
   task :namespace do
-    include Sinatra::RedisCache
-    Sinatra::RedisCache::Config.config.namespace
+    puts Sinatra::RedisCache::Config.namespace
   end
 
   desc 'Show all cache keys'
