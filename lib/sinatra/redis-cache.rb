@@ -53,7 +53,7 @@ module Sinatra
             sleep ((50 + rand(100).to_f)/1000)
             retry
           end
-          else
+        else
           # Just run the block without cache if we're not in an allowed environment
           block.call
         end
