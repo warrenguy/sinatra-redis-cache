@@ -76,14 +76,6 @@ module Sinatra
         redis.expire(key, expires)
       end
 
-      def lock_key(key, timeout=2)
-        if redis.setnx(key = key_with_namespace(key), serialize({properties: {locked: true}}))
-          redis.expire(key, timeout)
-        else
-          raise SinatraRedisCacheKeyAlreadyLocked
-        end
-      end
-
       def properties(key)
         unless (string = redis.get(key_with_namespace(key))).nil?
           deserialize(string)[:properties]
@@ -142,6 +134,14 @@ module Sinatra
 
       def deserialize(string)
         Marshal.load(string)
+      end
+
+      def lock_key(key, timeout=2)
+        if redis.setnx(key = key_with_namespace(key), serialize({properties: {locked: true}}))
+          redis.expire(key, timeout)
+        else
+          raise SinatraRedisCacheKeyAlreadyLocked
+        end
       end
     end
 
