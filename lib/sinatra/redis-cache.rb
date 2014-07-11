@@ -39,12 +39,17 @@ module Sinatra
               end
               object[:object]
             else
-              lock(key, lock.class == Integer ? lock : 2)
+              if lock
+                lock_key(key, lock.class == Integer ? lock : 2)
+              end
               new_object = block.call
               store(key, new_object, expires)
               new_object
             end
           rescue SinatraRedisCacheKeyLocked
+            sleep ((50 + rand(100).to_f)/1000)
+            retry
+          rescue SinatraRedisCacheKeyAlreadyLocked
             sleep ((50 + rand(100).to_f)/1000)
             retry
           end
@@ -71,9 +76,12 @@ module Sinatra
         redis.expire(key, expires)
       end
 
-      def lock(key, timeout=2)
-        redis.set(key = key_with_namespace(key), serialize({properties: {locked: true}}))
-        redis.expire(key, timeout)
+      def lock_key(key, timeout=2)
+        if redis.setnx(key = key_with_namespace(key), serialize({properties: {locked: true}}))
+          redis.expire(key, timeout)
+        else
+          raise SinatraRedisCacheKeyAlreadyLocked
+        end
       end
 
       def properties(key)
@@ -188,6 +196,9 @@ module Sinatra
 end
 
 class SinatraRedisCacheKeyLocked < Exception
+end
+
+class SinatraRedisCacheKeyAlreadyLocked < Exception
 end
 
 Sinatra::RedisCache::Config.config do
