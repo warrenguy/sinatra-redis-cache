@@ -40,6 +40,8 @@ Sinatra::RedisCache::Config.config do
   redis_conn      Redis.new
   namespace       'sinatra_cache'
   default_expires 3600
+  lock_timeout    5
   environments    [:production]
+  logger          Logger.new(STDERR)
 end
 ```

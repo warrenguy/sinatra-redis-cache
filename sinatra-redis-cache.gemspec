@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = 'sinatra-redis-cache'
-  s.version     = '0.1.3'
+  s.version     = '0.2.0'
   s.licenses    = ['MIT']
   s.summary     = 'A simple redis backed cache for Sinatra'
   s.description = 'A simple redis backed cache for Sinatra'
