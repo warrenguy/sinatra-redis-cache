@@ -29,7 +29,7 @@ module Sinatra
     end
 
     class Cache
-      def do(key, expires, lock, block)
+      def do(key, expires=config.default_expires, block)
         debug_log "do #{key_without_namespace(key)}"
         if Sinatra::RedisCache::Config.environments.include? Sinatra::Base.settings.environment
           try = 0
@@ -37,12 +37,12 @@ module Sinatra
             redis.watch(key = key_with_namespace(key)) do |watched|
               object = get(key)
               unless object.empty?
-                if lock && object['locked']
+                if object['locked']
                   raise SinatraRedisCacheKeyLocked
                 end
                 object['object']
               else
-                if lock then lock_key(key, watched, lock.class == Integer ? lock : 2) end
+                lock_key(key, watched, config.lock_timeout)
                 new_object = block.call
                 store(key, new_object, expires)
                 new_object
@@ -156,8 +156,8 @@ module Sinatra
         Marshal.load(string)
       end
 
-      def lock_key(key, redis, timeout=2)
-        debug_log "locking #{key_without_namespace(key)}"
+      def lock_key(key, redis, timeout=config.lock_timeout)
+        debug_log "locking #{key_without_namespace(key)} for #{timeout}s"
         unless redis.multi do |multi|
           multi.hsetnx(key, 'locked', serialize(true))
           multi.expire(key, timeout)
@@ -168,9 +168,9 @@ module Sinatra
       end
     end
 
-    def cache_do(key, expires=nil, lock=false, &block)
+    def cache_do(key, expires=nil, &block)
       cache = Cache.new
-      cache.do(key, expires, lock, block)
+      cache.do(key, expires, block)
     end
 
     def cache_get(key)
@@ -229,6 +229,7 @@ Sinatra::RedisCache::Config.config do
   parameter :redis_conn
   parameter :namespace
   parameter :default_expires
+  parameter :lock_timeout
   parameter :environments
   parameter :logger
 end
@@ -238,6 +239,7 @@ Sinatra::RedisCache::Config.config do
   redis_conn      Redis.new
   namespace       'sinatra_cache'
   default_expires 3600
+  lock_timeout    5
   environments    [:production]
   logger          Logger.new(STDERR)
 end
