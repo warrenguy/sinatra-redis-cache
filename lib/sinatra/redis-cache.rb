@@ -38,20 +38,23 @@ module Sinatra
             redis.watch(key = key_with_namespace(key)) do |watched|
               object = get(key)
               unless object.empty?
-                if object['locked']
+                if object[:lock]
                   raise SinatraRedisCacheKeyLocked
                 else
-                  unless object['update_locked']
+                  unless object[:update_lock]
                     if (
-                      ((Time.now.utc.to_i - object['properties'][:created_at]) > expires) &&
-                      ((Time.now.utc.to_i - object['properties'][:created_at]) < (expires + grace))
+                      ((Time.now.utc.to_i - object[:properties][:created_at]) > expires) &&
+                      ((Time.now.utc.to_i - object[:properties][:created_at]) < (expires + object[:properties][:grace]))
                     )
                       unless lock_key(key, watched, config.lock_timeout, 'update_lock') == false
-                        Thread.new { grace_store(key, block, expires, grace) }
+                        grace_store_thread = Thread.new { grace_store(key, block, expires, grace) }
+                        debug_log "grace_store worker #{grace_store_thread.__id__} spawned"
+                      else
+                        debug_log "update_lock not available, continuing"
                       end
                     end
                   end
-                  object['object']
+                  object[:object]
                 end
               else
                 if lock_key(key, watched, config.lock_timeout) == false
@@ -85,7 +88,8 @@ module Sinatra
       def get(key)
         debug_log "get #{key_without_namespace(key)}"
         unless (hash = redis.hgetall(key_with_namespace(key))).nil?
-          hash.each{|k,v| hash[k]=deserialize(v)}
+          hash.keys.each{|k| hash[k.to_sym]=deserialize(hash.delete(k))}
+          hash
         else
           false
         end
@@ -93,12 +97,12 @@ module Sinatra
 
       def store(key, object, expires=config.default_expires, grace=config.default_grace)
         debug_log "store #{key_without_namespace(key)}"
-        properties = { created_at: Time.now.utc.to_i }
+        properties = { created_at: Time.now.utc.to_i, grace: grace }
         redis.watch(key = key_with_namespace(key)) do |watched|
           watched.multi do |multi|
             multi.hset(key, 'object',     serialize(object))
             multi.hset(key, 'properties', serialize(properties))
-            multi.hdel(key, ['locked', 'update_locked'])
+            multi.hdel(key, ['lock', 'update_lock'])
             multi.expire(key, expires + grace)
           end
         end
@@ -179,18 +183,21 @@ module Sinatra
         Marshal.load(string)
       end
 
-      def lock_key(key, redis, timeout=config.lock_timeout, lock_name='locked')
+      def lock_key(key, redis, timeout=config.lock_timeout, lock_name='lock')
         debug_log "locking #{key_without_namespace(key)} for #{timeout}s [#{lock_name}]"
-        unless redis.multi do |multi|
+        if redis.multi do |multi|
           multi.hsetnx(key, lock_name, serialize(true))
           multi.expire(key, timeout)
         end.eql? [true,true]
+          debug_log("acquired lock for #{key_without_namespace(key)} [#{lock_name}]")
+          true
+        else
           false
         end
       end
     end
 
-    def cache_do(key, expires=nil, &block)
+    def cache_do(key, expires=false, &block)
       cache = Cache.new
       cache.do(key, expires, block)
     end
@@ -215,7 +222,7 @@ module Sinatra
       cache.ttl(key)
     end
 
-    def cache_store(key, value, expires=nil)
+    def cache_store(key, value, expires=false)
       cache = Cache.new
       cache.store(key, value, expires)
     end
