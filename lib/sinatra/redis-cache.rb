@@ -29,7 +29,7 @@ module Sinatra
     end
 
     class Cache
-      def do(key, expires=config.default_expires, block)
+      def do(key, expires=config.default_expires, grace=config.default_grace, block)
         debug_log "do #{key_without_namespace(key)}"
         if Sinatra::RedisCache::Config.environments.include? Sinatra::Base.settings.environment
           try = 0
@@ -40,13 +40,25 @@ module Sinatra
               unless object.empty?
                 if object['locked']
                   raise SinatraRedisCacheKeyLocked
+                else
+                  if (
+                    ((Time.now.utc.to_i - object['properties'][:created_at]) > expires) &&
+                    ((Time.now.utc.to_i - object['properties'][:created_at]) < (expires + grace))
+                  )
+                    unless lock_key(key, watched, config.lock_timeout, 'update_lock') == false
+                      Thread.new { grace_store(key, block, expires, grace) }
+                    end
+                  end
+                  object['object']
                 end
-                object['object']
               else
-                lock_key(key, watched, config.lock_timeout)
-                new_object = block.call
-                Thread.new { store(key, new_object, expires) }.priority=3
-                new_object
+                if lock_key(key, watched, config.lock_timeout) == false
+                  raise SinatraRedisCacheKeyAlreadyLocked
+                else
+                  new_object = block.call
+                  Thread.new { store(key, new_object, expires, grace) }.priority=3
+                  new_object
+                end
               end
             end
           rescue SinatraRedisCacheKeyLocked
@@ -77,17 +89,23 @@ module Sinatra
         end
       end
 
-      def store(key, object, expires=config.default_expires)
+      def store(key, object, expires=config.default_expires, grace=config.default_grace)
         debug_log "store #{key_without_namespace(key)}"
         properties = { created_at: Time.now.utc.to_i }
         redis.watch(key = key_with_namespace(key)) do |watched|
           watched.multi do |multi|
             multi.hset(key, 'object',     serialize(object))
             multi.hset(key, 'properties', serialize(properties))
-            multi.hdel(key, 'locked')
-            multi.expire(key, expires)
+            multi.hdel(key, ['locked', 'update_locked'])
+            multi.expire(key, expires + grace)
           end
         end
+      end
+
+      def grace_store(key, proc, expires=config.default_expires, grace=config.default_grace)
+        debug_log "grace store #{key_without_namespace(key)}"
+        new_object = proc.call
+        store(key, new_object, expires, grace)
       end
 
       def properties(key)
@@ -159,15 +177,14 @@ module Sinatra
         Marshal.load(string)
       end
 
-      def lock_key(key, redis, timeout=config.lock_timeout)
-        debug_log "locking #{key_without_namespace(key)} for #{timeout}s"
+      def lock_key(key, redis, timeout=config.lock_timeout, lock_name='locked')
+        debug_log "locking #{key_without_namespace(key)} for #{timeout}s [#{lock_name}]"
         unless redis.multi do |multi|
-          multi.hsetnx(key, 'locked', serialize(true))
+          multi.hsetnx(key, lock_name, serialize(true))
           multi.expire(key, timeout)
         end.eql? [true,true]
-          raise SinatraRedisCacheKeyAlreadyLocked
+          false
         end
-
       end
     end
 
@@ -232,6 +249,7 @@ Sinatra::RedisCache::Config.config do
   parameter :redis_conn
   parameter :namespace
   parameter :default_expires
+  parameter :default_grace
   parameter :lock_timeout
   parameter :environments
   parameter :logger
@@ -242,6 +260,7 @@ Sinatra::RedisCache::Config.config do
   redis_conn      Redis.new
   namespace       'sinatra_cache'
   default_expires 3600
+  default_grace   60
   lock_timeout    5
   environments    [:production]
   logger          Logger.new(STDERR)
