@@ -41,12 +41,14 @@ module Sinatra
                 if object['locked']
                   raise SinatraRedisCacheKeyLocked
                 else
-                  if (
-                    ((Time.now.utc.to_i - object['properties'][:created_at]) > expires) &&
-                    ((Time.now.utc.to_i - object['properties'][:created_at]) < (expires + grace))
-                  )
-                    unless lock_key(key, watched, config.lock_timeout, 'update_lock') == false
-                      Thread.new { grace_store(key, block, expires, grace) }
+                  unless object['update_locked']
+                    if (
+                      ((Time.now.utc.to_i - object['properties'][:created_at]) > expires) &&
+                      ((Time.now.utc.to_i - object['properties'][:created_at]) < (expires + grace))
+                    )
+                      unless lock_key(key, watched, config.lock_timeout, 'update_lock') == false
+                        Thread.new { grace_store(key, block, expires, grace) }
+                      end
                     end
                   end
                   object['object']
