@@ -33,6 +33,7 @@ module Sinatra
         debug_log "do #{key_without_namespace(key)}"
         if Sinatra::RedisCache::Config.environments.include? Sinatra::Base.settings.environment
           try = 0
+          starttime = Time.now.utc.to_i
           begin
             redis.watch(key = key_with_namespace(key)) do |watched|
               object = get(key)
@@ -44,20 +45,22 @@ module Sinatra
               else
                 lock_key(key, watched, config.lock_timeout)
                 new_object = block.call
-                store(key, new_object, expires)
+                Thread.new { store(key, new_object, expires) }.priority=3
                 new_object
               end
             end
           rescue SinatraRedisCacheKeyLocked
+            redis.unwatch
             sleeptime = (((try += 1)*50 + rand(100).to_f)/1000)
             debug_log "key is locked, waiting #{sleeptime}s for retry ##{try}."
             sleep sleeptime
-            retry
+            retry if (Time.now.utc.to_i - starttime) < (config.lock_timeout * 2)
           rescue SinatraRedisCacheKeyAlreadyLocked
+            redis.unwatch
             sleeptime = (((try += 1)*50 + rand(100).to_f)/1000)
             debug_log "failed to obtain lock, waiting #{sleeptime}s for retry ##{try}."
             sleep sleeptime
-            retry
+            retry if (Time.now.utc.to_i - starttime) < (config.lock_timeout * 2)
           end
         else
           # Just run the block without cache if we're not in an allowed environment
