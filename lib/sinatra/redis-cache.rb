@@ -47,7 +47,7 @@ module Sinatra
                       ((Time.now.utc.to_i - object[:properties][:created_at]) < (expires + object[:properties][:grace]))
                     )
                       unless lock_key(key, watched, config.lock_timeout, 'update_lock') == false
-                        grace_store_thread = Thread.new { grace_store(key, block, expires, grace) }
+                        grace_store_thread = Thread.new { grace_store(key, block, expires, grace, 'update_lock') }
                         debug_log "grace_store worker #{grace_store_thread.__id__} spawned"
                       else
                         debug_log "update_lock not available, continuing"
@@ -197,9 +197,9 @@ module Sinatra
       end
     end
 
-    def cache_do(key, expires=false, &block)
+    def cache_do(key, expires=false, grace=false, &block)
       cache = Cache.new
-      cache.do(key, expires, block)
+      cache.do(key, expires, grace, block)
     end
 
     def cache_get(key)
