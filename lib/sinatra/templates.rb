@@ -5,7 +5,11 @@ module Sinatra
 
     def render(*args, &block)
       key = 'auto/' + Digest::SHA256.hexdigest(args.to_s)
-      cache_do(key) { orig_render(*args, &block) }
+      if Sinatra::Application.settings.redis_cache_automatic
+        cache_do(key) { orig_render(*args, &block) }
+      else
+        orig_render(*args, &block)
+      end
     end
   end
 end
